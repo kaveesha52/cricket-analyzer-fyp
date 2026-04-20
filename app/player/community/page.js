@@ -1,187 +1,246 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/authContext'
-import PlayerNav from '@/components/PlayerNav'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import { Search, Star, Award, Users as UsersIcon } from 'lucide-react'
-import { collection, query, where, getDocs } from 'firebase/firestore'
+import { Bell, Send, Heart, MessageCircle, Share2, CheckCircle, MapPin, Briefcase, Star } from 'lucide-react'
+import { SidebarNav } from '@/components/SidebarNav'
+import { collection, query, where, onSnapshot } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
-import { toast } from 'sonner'
 
 export default function CommunityPage() {
-  const { user } = useAuth()
+  const { user, loading: authLoading } = useAuth()
+  const router = useRouter()
   const [coaches, setCoaches] = useState([])
-  const [loading, setLoading] = useState(true)
+  const [filteredCoaches, setFilteredCoaches] = useState([])
   const [searchQuery, setSearchQuery] = useState('')
+  const [isLoading, setIsLoading] = useState(true)
+  const [showConnectedOnly, setShowConnectedOnly] = useState(false)
+  const [connectedCoaches, setConnectedCoaches] = useState(new Set())
 
+  // Fetch coaches on mount
   useEffect(() => {
-    if (user) {
-      fetchCoaches()
-    }
+    if (!user?.uid) return
+    fetchCoaches()
+    setupConnectionsListener()
   }, [user])
+
+  // Set up real-time listener for connected coaches
+  const setupConnectionsListener = () => {
+    try {
+      const connectionsRef = collection(db, 'connections')
+      const q = query(connectionsRef, where('studentUid', '==', user.uid), where('status', '==', 'accepted'))
+      
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+        const connected = new Set()
+        snapshot.forEach(doc => {
+          connected.add(doc.data().coachUid)
+        })
+        setConnectedCoaches(connected)
+      })
+
+      return () => unsubscribe()
+    } catch (error) {
+      console.error('Error setting up connections listener:', error)
+    }
+  }
+
+  // Filter coaches when search query or filter changes
+  useEffect(() => {
+    let filtered = coaches
+
+    // Apply connected filter
+    if (showConnectedOnly) {
+      filtered = filtered.filter(coach => connectedCoaches.has(coach.uid))
+    }
+
+    // Apply search filter
+    if (searchQuery.trim()) {
+      filtered = filtered.filter(coach =>
+        coach.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        coach.bio?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (coach.specializations && coach.specializations.some(s => s.toLowerCase().includes(searchQuery.toLowerCase())))
+      )
+    }
+
+    setFilteredCoaches(filtered)
+  }, [searchQuery, coaches, showConnectedOnly, connectedCoaches])
 
   const fetchCoaches = async () => {
     try {
-      // Fetch real coaches from Firestore
-      const usersRef = collection(db, 'users');
-      const q = query(usersRef, where('role', '==', 'coach'));
-      const snapshot = await getDocs(q);
-      
-      const coachList = [];
-      snapshot.forEach(doc => {
-        coachList.push({ id: doc.id, ...doc.data() });
-      });
-      
-      setCoaches(coachList);
+      const response = await fetch(`/api/coaches?uid=${user.uid}`)
+      const data = await response.json()
+      setCoaches(data.coaches || [])
+      setIsLoading(false)
     } catch (error) {
       console.error('Error fetching coaches:', error)
-    } finally {
-      setLoading(false)
+      setIsLoading(false)
     }
   }
 
-  const handleConnect = async (coachId, coachName) => {
+  const handleConnect = async (coachUid, coachName) => {
+    setConnecting(coachUid)
     try {
-      const res = await fetch('/api/coach/connect', {
+      const response = await fetch('/api/coach/connect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          studentUid: user.uid,
-          coachUid: coachId,
-          message: 'I would like to connect with you as my coach.'
+          coachUid,
+          studentUid: user.uid
         })
       })
-      
-      if (res.ok) {
-        toast.success('Connection Request Sent!', {
-          description: `Your request has been sent to ${coachName}. They will review it soon.`,
-          duration: 4000,
-        })
+
+      if (response.ok) {
+        alert(`Connection request sent to ${coachName}!`)
+        // Refresh coaches list
+        fetchCoaches()
       } else {
-        toast.error('Failed to send request', {
-          description: 'Please try again later.',
-        })
+        alert('Failed to send connection request. Please try again.')
       }
     } catch (error) {
-      console.error('Error sending connection:', error)
-      toast.error('Connection failed', {
-        description: 'Something went wrong. Please try again.',
-      })
+      console.error('Error connecting with coach:', error)
+      alert('Error sending connection request.')
+    } finally {
+      setConnecting(null)
     }
   }
 
-  const filteredCoaches = coaches.filter(coach => 
-    coach.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    coach.specialization.toLowerCase().includes(searchQuery.toLowerCase())
-  )
-
-  if (loading) {
+  if (authLoading || isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
+      <div className="flex h-screen bg-gray-50">
+        <SidebarNav activePage="Community" />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading coaches...</p>
+          </div>
+        </div>
       </div>
     )
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <PlayerNav />
-      
-      <main className="md:ml-64 mt-16 p-6 pb-20 md:pb-6 bg-gradient-to-br from-gray-50 to-blue-50 min-h-screen">
-        <div className="max-w-6xl mx-auto">
-          <div className="mb-8">
-            <h1 className="text-4xl font-poppins font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent mb-2">Find Your Coach</h1>
-            <p className="text-gray-600 text-lg">Connect with experienced cricket coaches to improve your game</p>
+    <div className="flex h-screen bg-gray-50">
+      {/* SIDEBAR */}
+      <SidebarNav activePage="Community" />
+
+      {/* MAIN CONTENT */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Find a Coach</h1>
+            <p className="text-sm text-gray-600">Connect with experienced cricket coaches</p>
           </div>
-          
-          {/* Search Bar */}
-          <Card className="shadow-xl border-0 mb-8 bg-white/80 backdrop-blur-sm">
-            <CardContent className="pt-6">
-              <div className="relative">
-                <Search className="absolute left-4 top-1/2 transform -translate-y-1/2 text-gray-400 w-5 h-5" />
-                <Input
-                  placeholder="Search coaches by name or specialization..."
+          <Bell className="w-5 h-5 text-gray-600" />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-8">
+          <div className="max-w-6xl mx-auto">
+            {/* Search Bar and Filter */}
+            <div className="mb-8 space-y-4">
+              <div className="flex gap-4">
+                <input
+                  type="text"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-12 h-12 text-base border-gray-200 focus:border-blue-400 focus:ring-blue-400"
+                  placeholder="Search coaches by name or specialization..."
+                  className="flex-1 px-6 py-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <button
+                  onClick={() => setShowConnectedOnly(!showConnectedOnly)}
+                  className={`px-6 py-3 rounded-lg font-medium transition-colors flex items-center gap-2 whitespace-nowrap ${
+                    showConnectedOnly
+                      ? 'bg-blue-600 text-white hover:bg-blue-700'
+                      : 'bg-gray-200 text-gray-900 hover:bg-gray-300'
+                  }`}
+                >
+                  <CheckCircle className="w-4 h-4" />
+                  {showConnectedOnly ? 'Connected Only' : 'All Coaches'}
+                </button>
               </div>
-            </CardContent>
-          </Card>
-
-          {/* Coach Cards Grid */}
-          {filteredCoaches.length > 0 ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredCoaches.map((coach) => (
-                <Card key={coach.id} className="shadow-xl border-0 hover:shadow-2xl transition-all duration-300 transform hover:-translate-y-2 bg-white overflow-hidden">
-                  <div className="h-24 bg-gradient-to-r from-blue-500 to-blue-600"></div>
-                  <CardContent className="pt-6 -mt-12">
-                    <div className="text-center mb-4">
-                      <Avatar className="w-24 h-24 mx-auto mb-4 border-4 border-white shadow-lg">
-                        <AvatarFallback className="bg-gradient-to-br from-blue-600 to-blue-400 text-white text-2xl font-bold">
-                          {coach.name[0]}
-                        </AvatarFallback>
-                      </Avatar>
-                      <h3 className="text-xl font-bold text-gray-900 mb-1">{coach.name}</h3>
-                      <div className="inline-block px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm font-semibold mb-3">
-                        {coach.specialization || 'Cricket Coach'}
-                      </div>
-                      
-                      <div className="flex items-center justify-center space-x-1 mb-4">
-                        {[...Array(5)].map((_, i) => (
-                          <Star
-                            key={i}
-                            className={`w-4 h-4 ${
-                              i < 4 ? 'fill-yellow-400 text-yellow-400' : 'text-gray-300'
-                            }`}
-                          />
-                        ))}
-                        <span className="text-sm text-gray-600 ml-2 font-medium">(4.8)</span>
-                      </div>
-                    </div>
-
-                    <div className="space-y-3 mb-6 bg-gray-50 rounded-lg p-4">
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600 flex items-center">
-                          <Award className="w-4 h-4 mr-2 text-blue-500" />
-                          Experience
-                        </span>
-                        <span className="font-semibold text-gray-900">8+ years</span>
-                      </div>
-                      <div className="flex items-center justify-between text-sm">
-                        <span className="text-gray-600 flex items-center">
-                          <UsersIcon className="w-4 h-4 mr-2 text-green-500" />
-                          Students
-                        </span>
-                        <span className="font-semibold text-gray-900">25+ active</span>
-                      </div>
-                    </div>
-
-                    <Button 
-                      className="w-full bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 text-white py-6 rounded-xl shadow-lg hover:shadow-xl transition-all transform hover:scale-105" 
-                      onClick={() => handleConnect(coach.id, coach.name)}
-                    >
-                      Connect with Coach
-                    </Button>
-                  </CardContent>
-                </Card>
-              ))}
+              {showConnectedOnly && connectedCoaches.size > 0 && (
+                <p className="text-sm text-gray-600">
+                  Showing {filteredCoaches.length} of {connectedCoaches.size} connected {connectedCoaches.size === 1 ? 'coach' : 'coaches'}
+                </p>
+              )}
             </div>
-          ) : (
-            <Card className="shadow-lg">
-              <CardContent className="py-16 text-center">
-                <Search className="w-16 h-16 text-gray-400 mx-auto mb-4" />
-                <h3 className="text-xl font-semibold text-gray-700 mb-2">No Coaches Found</h3>
-                <p className="text-gray-600">Try adjusting your search criteria</p>
-              </CardContent>
-            </Card>
-          )}
+
+            {/* Coaches Grid */}
+            {filteredCoaches.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {filteredCoaches.map((coach) => (
+                  <div
+                    key={coach.uid}
+                    onClick={() => router.push(`/player/coaches/${coach.uid}`)}
+                    className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-all cursor-pointer transform hover:scale-105"
+                  >
+                    {/* Coach Header Background */}
+                    <div className="h-24 bg-gradient-to-r from-blue-500 to-blue-600"></div>
+
+                    {/* Coach Info */}
+                    <div className="p-6">
+                      {/* Avatar */}
+                      <div className="flex items-center gap-4 mb-4">
+                        <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-400 to-blue-600 flex items-center justify-center text-white font-bold text-2xl border-4 border-white -mt-12">
+                          {coach.name?.charAt(0).toUpperCase() || 'C'}
+                        </div>
+                        <div>
+                          <h3 className="text-lg font-bold text-gray-900">{coach.name || 'Coach'}</h3>
+                          <p className="text-sm text-gray-600">{coach.email}</p>
+                        </div>
+                      </div>
+
+                      {/* Rating */}
+                      <div className="flex items-center gap-1 mb-3">
+                        {[...Array(5)].map((_, i) => (
+                          <span key={i} className="text-yellow-400">★</span>
+                        ))}
+                        <span className="text-sm text-gray-600 ml-2">(4.8)</span>
+                      </div>
+
+                      {/* Bio */}
+                      <p className="text-sm text-gray-600 mb-4 line-clamp-2">{coach.bio || 'Experienced cricket coach'}</p>
+
+                      {/* Specializations Preview */}
+                      {coach.specializations && coach.specializations.length > 0 && (
+                        <div className="mb-4">
+                          <div className="flex flex-wrap gap-2">
+                            {coach.specializations.slice(0, 2).map((spec, idx) => (
+                              <span key={idx} className="px-2 py-1 bg-blue-100 text-blue-700 text-xs rounded-full">
+                                {spec}
+                              </span>
+                            ))}
+                            {coach.specializations.length > 2 && (
+                              <span className="px-2 py-1 bg-gray-100 text-gray-700 text-xs rounded-full">
+                                +{coach.specializations.length - 2} more
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* CTA */}
+                      <div className="px-4 py-2 bg-blue-50 rounded-lg text-center">
+                        <p className="text-sm text-blue-700 font-medium">Click to view profile</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="bg-white rounded-lg p-12 shadow-sm border border-gray-100 text-center">
+                <div className="w-24 h-24 mx-auto mb-4 bg-gray-100 rounded-full flex items-center justify-center">
+                  <span className="text-4xl">🔍</span>
+                </div>
+                <h3 className="text-lg font-semibold text-gray-900 mb-2">No Coaches Found</h3>
+                <p className="text-gray-600">{searchQuery ? 'Try adjusting your search criteria' : 'No coaches available yet'}</p>
+              </div>
+            )}
+          </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }

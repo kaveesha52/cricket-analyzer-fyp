@@ -7,7 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { CheckCircle, XCircle, Clock } from 'lucide-react'
-import { collection, query, where, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore'
+import { collection, query, where, onSnapshot, doc } from 'firebase/firestore'
 import { db } from '@/lib/firebase'
 import { toast } from 'sonner'
 
@@ -15,76 +15,119 @@ export default function CoachRequestsPage() {
   const { user } = useAuth()
   const [requests, setRequests] = useState([])
   const [loading, setLoading] = useState(true)
+  const [processingId, setProcessingId] = useState(null)
 
   useEffect(() => {
-    if (user) {
-      fetchRequests()
-    }
-  }, [user])
+    if (!user) return
 
-  const fetchRequests = async () => {
-    try {
-      const connectionsRef = collection(db, 'connections')
-      const q = query(connectionsRef, where('coachUid', '==', user.uid), where('status', '==', 'pending'))
-      const snapshot = await getDocs(q)
-      
-      const requestsList = []
-      for (const docSnap of snapshot.docs) {
-        const connection = docSnap.data()
-        // Get student info
-        const studentDoc = await getDoc(doc(db, 'users', connection.studentUid))
-        if (studentDoc.exists()) {
-          requestsList.push({
-            id: docSnap.id,
-            ...connection,
-            studentData: { uid: connection.studentUid, ...studentDoc.data() }
-          })
+    // Set up real-time listener
+    const connectionsRef = collection(db, 'connections')
+    const q = query(connectionsRef, where('coachUid', '==', user.uid), where('status', '==', 'pending'))
+    
+    const unsubscribe = onSnapshot(q, async (snapshot) => {
+      try {
+        const requestsList = []
+        for (const docSnap of snapshot.docs) {
+          const connection = docSnap.data()
+          // Get student info
+          const studentDocRef = doc(db, 'users', connection.studentUid)
+          const studentDocSnap = await (async () => {
+            try {
+              const response = await fetch(`/api/user/profile?uid=${connection.studentUid}`)
+              const data = await response.json()
+              return {
+                exists: () => !!data.user,
+                data: () => data.user
+              }
+            } catch {
+              return { exists: () => false }
+            }
+          })()
+          
+          if (studentDocSnap.exists()) {
+            requestsList.push({
+              id: docSnap.id,
+              ...connection,
+              studentData: { uid: connection.studentUid, ...studentDocSnap.data() }
+            })
+          }
         }
+        
+        setRequests(requestsList)
+      } catch (error) {
+        console.error('Error processing requests snapshot:', error)
+      } finally {
+        setLoading(false)
       }
-      
-      setRequests(requestsList)
-    } catch (error) {
-      console.error('Error fetching requests:', error)
-    } finally {
+    }, (error) => {
+      console.error('Error setting up listener:', error)
       setLoading(false)
-    }
-  }
+    })
+
+    return () => unsubscribe()
+  }, [user])
 
   const handleAccept = async (requestId) => {
     try {
-      await updateDoc(doc(db, 'connections', requestId), {
-        status: 'accepted',
-        updatedAt: new Date().toISOString()
-      })
+      setProcessingId(requestId)
       
-      toast.success('Request Accepted!', {
-        description: 'Student added to your roster.',
-        duration: 3000,
+      const response = await fetch('/api/coach/connection', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.uid
+        },
+        body: JSON.stringify({
+          connectionId: requestId,
+          status: 'accepted'
+        })
       })
-      
-      fetchRequests()
+
+      if (response.ok) {
+        toast.success('Request Accepted!', {
+          description: 'Student added to your roster.',
+          duration: 3000,
+        })
+      } else {
+        throw new Error('Failed to accept request')
+      }
     } catch (error) {
       console.error('Error accepting request:', error)
       toast.error('Failed to accept request')
+    } finally {
+      setProcessingId(null)
     }
   }
 
   const handleReject = async (requestId) => {
     try {
-      await updateDoc(doc(db, 'connections', requestId), {
-        status: 'rejected',
-        updatedAt: new Date().toISOString()
-      })
+      setProcessingId(requestId)
       
-      toast.success('Request Rejected', {
-        description: 'The request has been declined.',
-        duration: 3000,
+      const response = await fetch('/api/coach/connection', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-user-id': user.uid
+        },
+        body: JSON.stringify({
+          connectionId: requestId,
+          status: 'rejected'
+        })
       })
-      
-      fetchRequests()
+
+      if (response.ok) {
+        toast.success('Request Rejected', {
+          description: 'The request has been declined.',
+          duration: 3000,
+        })
+      } else {
+        throw new Error('Failed to reject request')
+      }
     } catch (error) {
       console.error('Error rejecting request:', error)
       toast.error('Failed to reject request')
+    } finally {
+      setProcessingId(null)
     }
   }
 
@@ -106,19 +149,19 @@ export default function CoachRequestsPage() {
         {requests.length > 0 ? (
           <div className="space-y-4">
             {requests.map((request) => (
-              <Card key={request.id} className="shadow-lg">
+              <Card key={request.id} className="shadow-lg hover:shadow-xl transition-shadow">
                 <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center space-x-4">
-                      <Avatar className="w-16 h-16">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center space-x-4 flex-1">
+                      <Avatar className="w-16 h-16 flex-shrink-0">
                         <AvatarFallback className="bg-blue-600 text-white text-xl">
                           {request.studentData?.name?.[0] || 'S'}
                         </AvatarFallback>
                       </Avatar>
-                      <div>
+                      <div className="flex-1 min-w-0">
                         <h3 className="text-lg font-semibold">{request.studentData?.name || 'Student'}</h3>
-                        <p className="text-sm text-gray-600">{request.studentData?.email}</p>
-                        <p className="text-sm text-gray-500 mt-2">{request.message}</p>
+                        <p className="text-sm text-gray-600 truncate">{request.studentData?.email}</p>
+                        <p className="text-sm text-gray-500 mt-2 line-clamp-2">{request.message || 'Wants to connect'}</p>
                         <p className="text-xs text-gray-400 mt-1 flex items-center">
                           <Clock className="w-3 h-3 mr-1" />
                           {new Date(request.createdAt).toLocaleDateString()}
@@ -126,9 +169,10 @@ export default function CoachRequestsPage() {
                       </div>
                     </div>
                     
-                    <div className="flex space-x-2">
+                    <div className="flex flex-col sm:flex-row gap-2 flex-shrink-0">
                       <Button
                         onClick={() => handleAccept(request.id)}
+                        disabled={processingId !== null}
                         className="bg-green-600 hover:bg-green-700"
                       >
                         <CheckCircle className="w-4 h-4 mr-2" />
@@ -136,6 +180,7 @@ export default function CoachRequestsPage() {
                       </Button>
                       <Button
                         onClick={() => handleReject(request.id)}
+                        disabled={processingId !== null}
                         variant="outline"
                         className="text-red-600 border-red-600 hover:bg-red-50"
                       >

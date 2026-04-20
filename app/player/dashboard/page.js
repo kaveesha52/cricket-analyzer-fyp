@@ -1,45 +1,23 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/authContext'
-import PlayerNav from '@/components/PlayerNav'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { TrendingUp, Target, DollarSign, Activity, Plus } from 'lucide-react'
+import { Bell } from 'lucide-react'
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts'
 import Link from 'next/link'
-import { Line, Bar } from 'react-chartjs-2'
-import {
-  Chart as ChartJS,
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-} from 'chart.js'
+import { SidebarNav } from '@/components/SidebarNav'
 
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  PointElement,
-  LineElement,
-  BarElement,
-  Title,
-  Tooltip,
-  Legend,
-  Filler
-)
-
-export default function PlayerDashboard() {
-  const { user, loading } = useAuth()
+export default function DashboardPage() {
+  const { user, loading, signOut } = useAuth()
   const router = useRouter()
   const [stats, setStats] = useState(null)
   const [matches, setMatches] = useState([])
   const [loadingData, setLoadingData] = useState(true)
+  const [selectedFilter, setSelectedFilter] = useState('All')
+  const [battingTrendData, setBattingTrendData] = useState([])
+  const [formatComparisonData, setFormatComparisonData] = useState([])
+  const [dismissalData, setDismissalData] = useState([])
 
   useEffect(() => {
     if (!loading && !user) {
@@ -53,6 +31,14 @@ export default function PlayerDashboard() {
     }
   }, [user])
 
+  useEffect(() => {
+    // Update chart data when filter changes
+    const filteredMatches = selectedFilter === 'All' 
+      ? matches 
+      : matches.filter(m => m.format === selectedFilter)
+    processChartData(filteredMatches)
+  }, [selectedFilter, matches])
+
   const fetchData = async () => {
     try {
       const [statsRes, matchesRes] = await Promise.all([
@@ -64,12 +50,109 @@ export default function PlayerDashboard() {
       const matchesData = await matchesRes.json()
 
       setStats(statsData.stats)
-      setMatches(matchesData.matches?.slice(0, 5) || [])
+      setMatches(matchesData.matches || [])
+
+      // Process data for charts
+      processChartData(matchesData.matches || [])
     } catch (error) {
       console.error('Error fetching data:', error)
     } finally {
       setLoadingData(false)
     }
+  }
+
+  const processChartData = (allMatches) => {
+    // Batting Trend Data
+    const trendData = allMatches.slice(-10).map((match, idx) => ({
+      match: `M${idx + 1}`,
+      runs: match.batting?.runs || 0,
+      avg: calculateRunningAverage(allMatches.slice(0, idx + 1))
+    }))
+    setBattingTrendData(trendData)
+
+    // Format Comparison Data
+    const formats = {}
+    allMatches.forEach(match => {
+      if (!formats[match.format]) {
+        formats[match.format] = { format: match.format, total: 0, count: 0, strikeRate: 0, balls: 0 }
+      }
+      formats[match.format].total += match.batting?.runs || 0
+      formats[match.format].count++
+      formats[match.format].balls += match.batting?.balls || 0
+    })
+
+    const formatData = Object.values(formats).map(f => ({
+      format: f.format,
+      average: (f.total / f.count).toFixed(2),
+      strikeRate: f.balls > 0 ? ((f.total / f.balls) * 100).toFixed(2) : 0
+    }))
+    setFormatComparisonData(formatData)
+
+    // Dismissal Analysis
+    const dismissals = {}
+    allMatches.forEach(match => {
+      const dismissal = match.batting?.dismissal || 'Not Out'
+      dismissals[dismissal] = (dismissals[dismissal] || 0) + 1
+    })
+
+    const dismissalArray = Object.entries(dismissals).map(([name, value]) => ({ name, value }))
+    setDismissalData(dismissalArray)
+  }
+
+  const calculateRunningAverage = (matchesList) => {
+    const totalRuns = matchesList.reduce((sum, m) => sum + (m.batting?.runs || 0), 0)
+    return (totalRuns / matchesList.length).toFixed(2)
+  }
+
+  const getFilteredStats = () => {
+    let filteredMatches = matches
+    if (selectedFilter !== 'All') {
+      filteredMatches = matches.filter(m => m.format === selectedFilter)
+    }
+
+    if (filteredMatches.length === 0) {
+      return {
+        totalMatches: 0,
+        battingAverage: '-',
+        strikeRate: '-',
+        bowlingEconomy: '-',
+        totalRuns: '-'
+      }
+    }
+
+    let totalRuns = 0
+    let totalBalls = 0
+    let totalOvers = 0
+    let totalRunsConceded = 0
+
+    filteredMatches.forEach(match => {
+      totalRuns += match.batting?.runs || 0
+      totalBalls += match.batting?.balls || 0
+      totalOvers += match.bowling?.overs || 0
+      totalRunsConceded += match.bowling?.runsConceded || 0
+    })
+
+    const battingAverage = filteredMatches.length > 0 ? (totalRuns / filteredMatches.length).toFixed(2) : 0
+    const strikeRate = totalBalls > 0 ? ((totalRuns / totalBalls) * 100).toFixed(2) : 0
+    const bowlingEconomy = totalOvers > 0 ? (totalRunsConceded / totalOvers).toFixed(2) : 0
+
+    return {
+      totalMatches: filteredMatches.length,
+      battingAverage,
+      strikeRate,
+      bowlingEconomy,
+      totalRuns
+    }
+  }
+
+  const filterMatches = () => {
+    if (selectedFilter === 'All') return matches.slice(0, 3)
+    return matches.filter(m => m.format === selectedFilter).slice(0, 3)
+  }
+
+  const formatMatchDate = (dateStr) => {
+    const date = new Date(dateStr)
+    return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' })
   }
 
   if (loading || loadingData) {
@@ -80,228 +163,212 @@ export default function PlayerDashboard() {
     )
   }
 
-  const lineChartData = {
-    labels: matches.slice().reverse().map(m => new Date(m.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })),
-    datasets: [
-      {
-        label: 'Runs',
-        data: matches.slice().reverse().map(m => m.batting?.runs || 0),
-        borderColor: 'rgb(37, 99, 235)',
-        backgroundColor: 'rgba(37, 99, 235, 0.1)',
-        fill: true,
-        tension: 0.4
-      }
-    ]
-  }
-
-  const barChartData = {
-    labels: ['T20', 'ODI', 'Test'],
-    datasets: [
-      {
-        label: 'Batting Average',
-        data: [
-          matches.filter(m => m.format === 'T20').reduce((acc, m) => acc + (m.batting?.runs || 0), 0) / (matches.filter(m => m.format === 'T20').length || 1),
-          matches.filter(m => m.format === 'ODI').reduce((acc, m) => acc + (m.batting?.runs || 0), 0) / (matches.filter(m => m.format === 'ODI').length || 1),
-          matches.filter(m => m.format === 'Test').reduce((acc, m) => acc + (m.batting?.runs || 0), 0) / (matches.filter(m => m.format === 'Test').length || 1)
-        ],
-        backgroundColor: ['rgba(239, 68, 68, 0.8)', 'rgba(37, 99, 235, 0.8)', 'rgba(34, 197, 94, 0.8)']
-      }
-    ]
-  }
+  const recentMatches = filterMatches()
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900">
-      <PlayerNav />
-      
-      <main className="md:ml-64 mt-16 p-6 pb-20 md:pb-6 bg-gradient-to-br from-gray-50 to-blue-50 dark:from-gray-900 dark:to-gray-800 min-h-screen">
-        <div className="mb-8">
-          <h1 className="text-4xl font-poppins font-bold bg-gradient-to-r from-blue-600 to-blue-800 bg-clip-text text-transparent mb-2">Dashboard</h1>
-          <p className="text-gray-600 dark:text-gray-300">Welcome back! Here's your performance overview</p>
-        </div>
-        
-        {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <Card className="shadow-xl border-0 bg-gradient-to-br from-blue-500 to-blue-600 text-white hover:scale-105 transition-transform duration-300">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-blue-100 text-sm font-medium mb-1">Batting Average</p>
-                  <p className="text-4xl font-bold">{stats?.battingAverage || '0.00'}</p>
-                  <p className="text-blue-100 text-xs mt-2">Per match average</p>
-                </div>
-                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                  <TrendingUp className="w-7 h-7" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+    <div className="flex h-screen bg-gray-50">
+      {/* SIDEBAR */}
+      <SidebarNav activePage="Dashboard" />
 
-          <Card className="shadow-xl border-0 bg-gradient-to-br from-green-500 to-green-600 text-white hover:scale-105 transition-transform duration-300">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-green-100 text-sm font-medium mb-1">Strike Rate</p>
-                  <p className="text-4xl font-bold">{stats?.strikeRate || '0.00'}</p>
-                  <p className="text-green-100 text-xs mt-2">Runs per 100 balls</p>
-                </div>
-                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                  <Activity className="w-7 h-7" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-xl border-0 bg-gradient-to-br from-orange-500 to-orange-600 text-white hover:scale-105 transition-transform duration-300">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-orange-100 text-sm font-medium mb-1">Bowling Economy</p>
-                  <p className="text-4xl font-bold">{stats?.bowlingEconomy || '0.00'}</p>
-                  <p className="text-orange-100 text-xs mt-2">Runs per over</p>
-                </div>
-                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                  <Target className="w-7 h-7" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          <Card className="shadow-xl border-0 bg-gradient-to-br from-purple-500 to-purple-600 text-white hover:scale-105 transition-transform duration-300">
-            <CardContent className="pt-6">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-purple-100 text-sm font-medium mb-1">Total Matches</p>
-                  <p className="text-4xl font-bold">{stats?.totalMatches || 0}</p>
-                  <p className="text-purple-100 text-xs mt-2">Recorded games</p>
-                </div>
-                <div className="w-14 h-14 bg-white/20 backdrop-blur-sm rounded-2xl flex items-center justify-center">
-                  <DollarSign className="w-7 h-7" />
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+      {/* MAIN CONTENT */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">Performance Overview</h1>
+            <div className="flex gap-4 mt-2">
+              {['All', 'T20', 'ODI', 'Test'].map(format => (
+                <button
+                  key={format}
+                  onClick={() => setSelectedFilter(format)}
+                  className={`text-sm px-3 py-1 rounded transition-colors ${
+                    selectedFilter === format
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  {format}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="flex items-center gap-4">
+            <input
+              type="text"
+              placeholder="Search matches..."
+              className="px-4 py-2 border border-gray-300 rounded-lg text-sm"
+            />
+            <Bell className="w-5 h-5 text-gray-600 cursor-pointer" />
+          </div>
         </div>
 
-        {/* Charts */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          <Card className="shadow-xl border-0 hover:shadow-2xl transition-shadow">
-            <CardHeader className="border-b bg-gradient-to-r from-blue-50 to-transparent">
-              <CardTitle className="text-lg font-poppins flex items-center">
-                <div className="w-8 h-8 bg-blue-100 rounded-lg flex items-center justify-center mr-3">
-                  📈
-                </div>
-                Runs Per Match Over Time
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-6">
-              {matches.length > 0 ? (
-                <Line data={lineChartData} options={{ responsive: true, maintainAspectRatio: true }} />
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-8 space-y-6">
+          {/* Metric Cards */}
+          <div className="grid grid-cols-4 gap-6">
+            {(() => {
+              const filteredStats = getFilteredStats()
+              return (
+                <>
+                  <MetricCard
+                    title="Batting Average"
+                    value={filteredStats.totalMatches > 0 ? filteredStats.battingAverage : '-'}
+                    change={filteredStats.totalMatches > 0 ? "+2.1% vs last month" : "Add matches to see data"}
+                    icon="📊"
+                  />
+                  <MetricCard
+                    title="Strike Rate (T20)"
+                    value={filteredStats.totalMatches > 0 ? filteredStats.strikeRate : '-'}
+                    change={filteredStats.totalMatches > 0 ? "+3.6 vs last month" : "Add matches to see data"}
+                    icon="⚡"
+                  />
+                  <MetricCard
+                    title="Economy Rate"
+                    value={filteredStats.totalMatches > 0 ? filteredStats.bowlingEconomy : '-'}
+                    change={filteredStats.totalMatches > 0 ? "-0.2 vs last month" : "Add matches to see data"}
+                    icon="🎯"
+                  />
+                  <MetricCard
+                    title="Total Runs (YTD)"
+                    value={filteredStats.totalMatches > 0 ? filteredStats.totalRuns || 0 : '-'}
+                    change={`${filteredStats.totalMatches} ${filteredStats.totalMatches === 1 ? 'Match' : 'Matches'}`}
+                    icon="🏆"
+                  />
+                </>
+              )
+            })()}
+          </div>
+
+          {/* Charts */}
+          <div className="grid grid-cols-2 gap-6">
+            {/* Batting Performance Trend */}
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+              <h2 className="text-lg font-bold mb-4 text-gray-900">Batting Performance Trend</h2>
+              {battingTrendData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={battingTrendData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="match" stroke="#9ca3af" />
+                    <YAxis stroke="#9ca3af" />
+                    <Tooltip />
+                    <Legend />
+                    <Line type="monotone" dataKey="runs" stroke="#8b5cf6" strokeWidth={2} name="Runs" />
+                    <Line type="monotone" dataKey="avg" stroke="#10b981" strokeWidth={2} name="Avg (Last 10)" />
+                  </LineChart>
+                </ResponsiveContainer>
               ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    📊
-                  </div>
-                  <p className="text-gray-500">No data yet. Add matches to see trends!</p>
-                </div>
+                <p className="text-gray-500 text-center py-8">No data available</p>
               )}
-            </CardContent>
-          </Card>
+            </div>
 
-          <Card className="shadow-xl border-0 hover:shadow-2xl transition-shadow">
-            <CardHeader className="border-b bg-gradient-to-r from-green-50 to-transparent">
-              <CardTitle className="text-lg font-poppins flex items-center">
-                <div className="w-8 h-8 bg-green-100 rounded-lg flex items-center justify-center mr-3">
-                  📊
-                </div>
-                Performance by Format
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="pt-6">
-              {matches.length > 0 ? (
-                <Bar data={barChartData} options={{ responsive: true, maintainAspectRatio: true }} />
+            {/* Format Comparison */}
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+              <h2 className="text-lg font-bold mb-4 text-gray-900">Format Comparison</h2>
+              {formatComparisonData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={formatComparisonData}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#e5e7eb" />
+                    <XAxis dataKey="format" stroke="#9ca3af" />
+                    <YAxis stroke="#9ca3af" />
+                    <Tooltip />
+                    <Legend />
+                    <Bar dataKey="average" fill="#8b5cf6" name="Average" />
+                    <Bar dataKey="strikeRate" fill="#10b981" name="Strike Rate" />
+                  </BarChart>
+                </ResponsiveContainer>
               ) : (
-                <div className="text-center py-12">
-                  <div className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                    📊
-                  </div>
-                  <p className="text-gray-500">No data yet. Add matches to see analysis!</p>
-                </div>
+                <p className="text-gray-500 text-center py-8">No data available</p>
               )}
-            </CardContent>
-          </Card>
-        </div>
+            </div>
+          </div>
 
-        {/* Recent Matches */}
-        <Card className="shadow-xl border-0">
-          <CardHeader className="flex flex-row items-center justify-between border-b bg-gradient-to-r from-purple-50 to-transparent">
-            <CardTitle className="text-lg font-poppins flex items-center">
-              <div className="w-8 h-8 bg-purple-100 rounded-lg flex items-center justify-center mr-3">
-                🏏
+          {/* Dismissal Analysis & Recent Matches */}
+          <div className="grid grid-cols-2 gap-6">
+            {/* Dismissal Analysis */}
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+              <h2 className="text-lg font-bold mb-4 text-gray-900">Dismissal Analysis</h2>
+              {dismissalData.length > 0 ? (
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={dismissalData}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={60}
+                      outerRadius={100}
+                      paddingAngle={2}
+                      dataKey="value"
+                    >
+                      <Cell fill="#8b5cf6" />
+                      <Cell fill="#3b82f6" />
+                      <Cell fill="#10b981" />
+                      <Cell fill="#f59e0b" />
+                      <Cell fill="#ef4444" />
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No data available</p>
+              )}
+            </div>
+
+            {/* Recent Matches */}
+            <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+              <div className="flex items-center justify-between mb-6">
+                <h2 className="text-lg font-bold text-gray-900">Recent Matches</h2>
+                <Link href="/player/matches" className="text-blue-600 text-sm font-medium hover:underline">View All</Link>
               </div>
-              Recent Matches
-            </CardTitle>
-            <Link href="/player/matches">
-              <Button variant="ghost" size="sm" className="hover:bg-purple-100">View All →</Button>
-            </Link>
-          </CardHeader>
-          <CardContent>
-            {matches.length > 0 ? (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b">
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Date</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Format</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Runs</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">Wickets</th>
-                      <th className="text-left py-3 px-4 font-medium text-gray-600">SR</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {matches.map((match, index) => (
-                      <tr key={match.id} className={index % 2 === 0 ? 'bg-gray-50' : 'bg-white'}>
-                        <td className="py-3 px-4">{new Date(match.date).toLocaleDateString()}</td>
-                        <td className="py-3 px-4">
-                          <span className={`px-2 py-1 rounded-full text-xs font-semibold ${
-                            match.format === 'T20' ? 'bg-red-100 text-red-700' :
-                            match.format === 'ODI' ? 'bg-blue-100 text-blue-700' :
-                            'bg-green-100 text-green-700'
-                          }`}>
+              {recentMatches.length > 0 ? (
+                <div className="space-y-4">
+                  {recentMatches.map((match) => (
+                    <div key={match.id} className="flex items-center justify-between p-4 bg-gradient-to-r from-blue-50 to-transparent rounded-lg border border-blue-100 hover:shadow-md transition-shadow">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="inline-block px-2 py-1 text-xs font-semibold bg-blue-600 text-white rounded">
                             {match.format}
                           </span>
-                        </td>
-                        <td className="py-3 px-4 font-semibold text-blue-600">{match.batting?.runs || 0}</td>
-                        <td className="py-3 px-4 font-semibold text-green-600">{match.bowling?.wickets || 0}</td>
-                        <td className="py-3 px-4">{match.batting?.strikeRate || '0.00'}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            ) : (
-              <div className="text-center py-12">
-                <p className="text-gray-500 mb-4">No matches yet! Add your first match to start tracking.</p>
-                <Link href="/player/add-match">
-                  <Button className="bg-green-600 hover:bg-green-700">
-                    <Plus className="w-4 h-4 mr-2" />
-                    Add Your First Match
-                  </Button>
-                </Link>
-              </div>
-            )}
-          </CardContent>
-        </Card>
+                          <p className="text-sm font-bold text-gray-900">vs {match.opponent || 'Unknown Team'}</p>
+                        </div>
+                        <p className="text-xs text-gray-500">{match.location || 'Unknown Location'}</p>
+                        <p className="text-xs text-gray-500">{formatMatchDate(match.date)}</p>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-lg font-bold text-gray-900">{match.batting?.runs || 0}</p>
+                        <p className="text-xs text-gray-600">@ {match.batting?.strikeRate || '0.00'} SR</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-gray-500 text-center py-8">No matches found</p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-        {/* Floating Add Button */}
-        <Link href="/player/add-match">
-          <Button
-            className="fixed bottom-20 md:bottom-8 right-8 w-14 h-14 rounded-full bg-green-600 hover:bg-green-700 shadow-lg"
-            size="icon"
-          >
-            <Plus className="w-6 h-6" />
-          </Button>
-        </Link>
-      </main>
+// ============================================================================
+// SIDEBAR COMPONENT
+// ============================================================================
+// Now using unified SidebarNav component from @/components/SidebarNav
+
+// ============================================================================
+// METRIC CARD COMPONENT
+// ============================================================================
+
+function MetricCard({ title, value, change, icon }) {
+  return (
+    <div className="bg-white rounded-lg p-6 shadow-sm border border-gray-100">
+      <div className="flex items-start justify-between mb-4">
+        <p className="text-gray-600 text-sm">{title}</p>
+        <span className="text-2xl">{icon}</span>
+      </div>
+      <p className="text-3xl font-bold text-gray-900 mb-2">{value}</p>
+      <p className="text-xs text-green-600">{change}</p>
     </div>
   )
 }

@@ -9,8 +9,6 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { User, Calendar, Phone, MapPin } from 'lucide-react'
-import { doc, updateDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
 import { toast } from 'sonner'
 
 export default function CompleteProfilePage() {
@@ -31,11 +29,19 @@ export default function CompleteProfilePage() {
     setLoading(true)
 
     try {
-      await updateDoc(doc(db, 'users', user.uid), {
-        ...formData,
-        profileCompleted: true,
-        updatedAt: new Date().toISOString()
+      const response = await fetch('/api/user/profile/update', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          uid: user.uid,
+          ...formData,
+          profileCompleted: true
+        })
       })
+
+      if (!response.ok) {
+        throw new Error('Failed to update profile')
+      }
 
       toast.success('Profile Completed!', {
         description: 'Welcome to Cricket Analyzer',

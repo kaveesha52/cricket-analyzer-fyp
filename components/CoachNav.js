@@ -4,15 +4,6 @@ import { useAuth } from '@/lib/authContext'
 import { useRouter, usePathname } from 'next/navigation'
 import { Users, User, LogOut, Award, Home, Mail } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Avatar, AvatarFallback } from '@/components/ui/avatar'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
 import Link from 'next/link'
 
 export default function CoachNav() {
@@ -40,44 +31,11 @@ export default function CoachNav() {
           <Award className="w-8 h-8" />
           <span className="text-xl font-poppins font-bold">Coach Portal</span>
         </div>
-        
-        <div className="flex items-center space-x-4">
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Avatar className="cursor-pointer">
-                <AvatarFallback className="bg-blue-600">
-                  {user?.email?.[0]?.toUpperCase() || 'C'}
-                </AvatarFallback>
-              </Avatar>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              <DropdownMenuLabel>My Account</DropdownMenuLabel>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link href="/coach/profile" className="cursor-pointer">
-                  <User className="w-4 h-4 mr-2" />
-                  Profile
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/coach/dashboard" className="cursor-pointer">
-                  <Home className="w-4 h-4 mr-2" />
-                  Dashboard
-                </Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={handleSignOut} className="cursor-pointer text-red-600">
-                <LogOut className="w-4 h-4 mr-2" />
-                Logout
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
       </nav>
 
       {/* Side Navigation */}
-      <aside className="fixed left-0 top-16 w-64 h-[calc(100vh-4rem)] bg-gray-100 border-r border-gray-200 overflow-y-auto hidden md:block">
-        <nav className="p-4 space-y-2">
+      <aside className="fixed left-0 top-16 w-64 h-[calc(100vh-4rem)] bg-gray-100 border-r border-gray-200 overflow-y-auto hidden md:flex md:flex-col">
+        <nav className="p-4 space-y-2 flex-1">
           {menuItems.map((item) => {
             const Icon = item.icon
             const isActive = pathname === item.path
@@ -106,6 +64,19 @@ export default function CoachNav() {
             <span className="font-medium">Logout</span>
           </button>
         </nav>
+
+        {/* Avatar at Bottom */}
+        <div className="p-4 border-t border-gray-200">
+          <div className="flex items-center gap-3 px-3 py-3 bg-gray-50 rounded-lg hover:bg-gray-100 transition-colors cursor-pointer">
+            <div className="w-10 h-10 bg-blue-600 rounded-full flex items-center justify-center text-white font-bold flex-shrink-0">
+              {user?.name ? user.name.split(' ')[0][0].toUpperCase() : (user?.email?.[0].toUpperCase() || 'C')}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-gray-900 truncate">{user?.name?.split(' ')[0]}</p>
+              <p className="text-xs text-gray-500 truncate">Cricket Coach</p>
+            </div>
+          </div>
+        </div>
       </aside>
 
       {/* Mobile Bottom Navigation */}

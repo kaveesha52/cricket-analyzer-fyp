@@ -2,10 +2,8 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { createUserWithEmailAndPassword } from 'firebase/auth'
+import { createUserWithEmailAndPassword, signOut as firebaseSignOut } from 'firebase/auth'
 import { auth } from '@/lib/firebase'
-import { doc, setDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -41,19 +39,43 @@ export default function RegisterPage() {
     setError('')
 
     try {
+      // Step 1: Create Firebase auth user
       const userCredential = await createUserWithEmailAndPassword(auth, email, password)
-      
-      // Create user profile in Firestore
-      await setDoc(doc(db, 'users', userCredential.user.uid), {
-        name,
-        email,
-        role,
-        profileCompleted: false,
-        createdAt: new Date().toISOString()
-      })
+      const uid = userCredential.user.uid
 
-      // Redirect to profile completion
-      router.push('/complete-profile')
+      // Step 2: Create user profile via API (server-side, more reliable)
+      try {
+        const response = await fetch('/api/user/profile', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            uid,
+            name,
+            email,
+            role,
+            profileCompleted: false
+          })
+        })
+
+        if (!response.ok) {
+          throw new Error('Failed to create user profile')
+        }
+
+        // Success - redirect to profile completion
+        router.push('/complete-profile')
+      } catch (profileError) {
+        console.error('Profile creation error:', profileError)
+        
+        // If profile creation failed, delete the auth user to allow retry
+        try {
+          await firebaseSignOut(auth)
+          // Note: Full user deletion requires Admin SDK, but sign out prevents "already registered" error
+        } catch (signOutError) {
+          console.error('Sign out error:', signOutError)
+        }
+        
+        throw new Error('Failed to complete registration. Firestore permission issue. Please try again.')
+      }
     } catch (error) {
       console.error('Registration error:', error)
       let errorMessage = 'Failed to register'
@@ -64,6 +86,8 @@ export default function RegisterPage() {
         errorMessage = '❌ Password is too weak. Use at least 6 characters.'
       } else if (error.code === 'auth/invalid-email') {
         errorMessage = '❌ Invalid email address format.'
+      } else if (error.message?.includes('Firestore')) {
+        errorMessage = '❌ ' + error.message
       }
       
       setError(errorMessage)

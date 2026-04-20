@@ -1,235 +1,385 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/authContext'
-import PlayerNav from '@/components/PlayerNav'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Bot, Send, Loader2, BarChart3 } from 'lucide-react'
+import { Bell, Send } from 'lucide-react'
+import { SidebarNav } from '@/components/SidebarNav'
 
 export default function AICoachPage() {
-  const { user } = useAuth()
-  const [messages, setMessages] = useState([])
-  const [input, setInput] = useState('')
-  const [loading, setLoading] = useState(false)
-  const [stats, setStats] = useState(null)
-
-  useEffect(() => {
-    if (user) {
-      fetchStats()
+  const { user, loading } = useAuth()
+  const router = useRouter()
+  const [messages, setMessages] = useState([
+    {
+      id: 1,
+      type: 'coach',
+      text: 'Hello! I\'m your AI Coach. I\'ll analyze your cricket performance and provide personalized coaching advice. How can I help you improve today?'
     }
+  ])
+  const [input, setInput] = useState('')
+  const [stats, setStats] = useState(null)
+  const [matches, setMatches] = useState([])
+  const [suggestedTopics, setSuggestedTopics] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isSending, setIsSending] = useState(false)
+
+  // Fetch player stats on mount
+  useEffect(() => {
+    if (!user?.uid) return
+    fetchPlayerData()
   }, [user])
 
-  const fetchStats = async () => {
+  const fetchPlayerData = async () => {
     try {
-      const res = await fetch(`/api/stats/player?uid=${user.uid}`)
-      const data = await res.json()
-      setStats(data.stats)
+      const [statsRes, matchesRes] = await Promise.all([
+        fetch(`/api/stats/player?uid=${user.uid}`),
+        fetch(`/api/matches?uid=${user.uid}`)
+      ])
+
+      const statsData = await statsRes.json()
+      const matchesData = await matchesRes.json()
+
+      setStats(statsData)
+      setMatches(matchesData.matches || [])
+
+      // Generate personalized topic suggestions
+      const topics = generateTopics(statsData, matchesData.matches || [])
+      setSuggestedTopics(topics)
+
+      setIsLoading(false)
     } catch (error) {
-      console.error('Error fetching stats:', error)
+      console.error('Error fetching player data:', error)
+      setIsLoading(false)
     }
+  }
+
+  const generateTopics = (statsData, matchesData) => {
+    const topics = []
+
+    if (!statsData) return ['Improve Strike Rate', 'Batting Technique', 'Mental Strength', 'Fitness Training', 'Match Strategy']
+
+    const avg = statsData.battingAverage || 0
+    const strikeRate = statsData.strikeRate || 0
+    const economy = statsData.economy || 0
+
+    // Identify weak areas
+    if (strikeRate < 130) topics.push('Improve Strike Rate')
+    if (avg < 40) topics.push('Consistency in Batting')
+    if (economy && economy > 7) topics.push('Bowling Control')
+    if (matchesData.length < 5) topics.push('Build Match Experience')
+    if (!topics.length) topics.push('Advanced Techniques')
+
+    // Add general topics
+    if (!topics.includes('Mental Strength')) topics.push('Mental Strength')
+    if (!topics.includes('Fitness Training')) topics.push('Fitness Training')
+
+    return topics.slice(0, 5)
+  }
+
+  const generateCoachResponse = (userMessage) => {
+    if (!stats) return 'Let me analyze your data first. Please wait a moment.'
+
+    const messageLower = userMessage.toLowerCase()
+    let response = ''
+
+    // Context-aware responses
+    if (
+      messageLower.includes('strike rate') ||
+      messageLower.includes('aggression') ||
+      messageLower.includes('aggressive')
+    ) {
+      const strikeRate = stats.strikeRate || 0
+      if (strikeRate < 120) {
+        response = `Your current strike rate is ${strikeRate.toFixed(2)}. To improve, focus on:
+        • Playing aggressive shots against loose balls
+        • Reducing dot balls in powerplay overs
+        • Building momentum with quick singles
+        • Practice against fast bowling to build confidence
+        
+        Work on these areas and you'll see improvement! 💪`
+      } else if (strikeRate < 140) {
+        response = `Good strike rate at ${strikeRate.toFixed(2)}! Keep improving by:
+        • Batting in powerplay overs to maximize boundaries
+        • Rotating strike effectively with singles
+        • Targeting weaker bowlers strategically
+        
+        You're on the right track! 🏏`
+      } else {
+        response = `Excellent strike rate of ${strikeRate.toFixed(2)}! You're performing well. Now focus on:
+        • Maintaining consistency in high-pressure matches
+        • Converting good starts into big scores
+        • Being mentally strong in tough situations
+        
+        Keep up the great work! 🌟`
+      }
+    } else if (messageLower.includes('average') || messageLower.includes('consistency')) {
+      const avg = stats.battingAverage || 0
+      if (avg < 35) {
+        response = `Your batting average is ${avg.toFixed(2)}. To improve consistency:
+        • Work on technique against different bowling styles
+        • Practice leaving deliveries outside off stump
+        • Build partnerships and play longer innings
+        • Review past dismissals to identify patterns
+        
+        Consistency comes with practice! 📊`
+      } else if (avg < 45) {
+        response = `Your batting average of ${avg.toFixed(2)} is decent! Improve further by:
+        • Playing more matchful innings
+        • Reducing risky shots early in innings
+        • Studying opponent bowlers
+        • Building mental toughness
+        
+        You're making progress! 📈`
+      } else {
+        response = `Great batting average of ${avg.toFixed(2)}! Maintain this by:
+        • Staying focused in tough situations
+        • Playing according to match situation
+        • Keeping fitness levels high
+        • Mentoring junior players
+        
+        You're an excellent performer! 🏆`
+      }
+    } else if (messageLower.includes('bowling') || messageLower.includes('economy')) {
+      const econ = stats.economy || 0
+      if (econ > 7.5) {
+        response = `Your economy rate is ${econ.toFixed(2)}. To improve:
+        • Focus on line and length consistency
+        • Use variations like slower balls
+        • Study batsman weaknesses before bowling
+        • Practice yorkers and slower balls
+        
+        Tighter bowling = better economy! 🎯`
+      } else if (econ > 6) {
+        response = `Your economy rate of ${econ.toFixed(2)} is good! Keep improving:
+        • Develop more bowling variations
+        • Improve yorker accuracy
+        • Read match situations better
+        • Build game awareness
+        
+        Keep bowling tight! 💨`
+      } else {
+        response = `Excellent economy rate of ${econ.toFixed(2)}! Maintain by:
+        • Staying disciplined with line and length
+        • Keeping variations fresh
+        • Analyzing batsman patterns
+        • Staying fit and sharp
+        
+        Outstanding bowling performance! ⚡`
+      }
+    } else if (messageLower.includes('fitness') || messageLower.includes('training')) {
+      response = `Great question about fitness! Here's my recommendation:
+      • Do 30 mins cardio 4-5 days a week (running, cycling)
+      • Strength training 2-3 days focusing on legs and core
+      • Cricket-specific drills: agility, acceleration, reaction
+      • Flexibility work: yoga or stretching 15 mins daily
+      • Proper warm-up before every session
+      
+      Fitness is the foundation of performance! 💪`
+    } else if (messageLower.includes('mental') || messageLower.includes('pressure') || messageLower.includes('confidence')) {
+      response = `Mental strength is crucial in cricket! Here's my advice:
+      • Visualization: Imagine successful batting/bowling before the match
+      • Breathing exercises: Deep breathing calms nerves
+      • Stay in the present: Focus on the current ball, not past mistakes
+      • Self-talk: Develop positive mental cues
+      • Learn from failures: Each dismissal is a learning opportunity
+      
+      A strong mind makes a strong cricketer! 🧠`
+    } else if (messageLower.includes('strategy') || messageLower.includes('technique')) {
+      response = `Match strategy and technique tips:
+      • Assess pitch, weather, and opponent before batting
+      • Build innings based on match situation
+      • Against fast bowlers: Play close to body, use feet
+      • Against spinners: Read length, use sweep carefully
+      • Rotate strike to keep scoreboard moving
+      • Adapt technique based on field placement
+      
+      Smart cricket beats raw talent! 🎯`
+    } else if (messageLower.includes('improve') || messageLower.includes('help')) {
+      const avg = stats?.battingAverage || 0
+      const strikeRate = stats?.strikeRate || 0
+
+      const weakAreas = []
+      if (strikeRate < 130) weakAreas.push('Strike Rate')
+      if (avg < 40) weakAreas.push('Consistency')
+      if ((stats?.economy || 0) > 7) weakAreas.push('Bowling Economy')
+
+      if (weakAreas.length > 0) {
+        response = `Based on your stats, I recommend focusing on: ${weakAreas.join(', ')}\n\n`
+      }
+
+      response +=
+        `Your current stats:\n` +
+        `• Batting Average: ${avg.toFixed(2)}\n` +
+        `• Strike Rate: ${strikeRate.toFixed(2)}\n` +
+        `• Matches Played: ${matches.length}\n\n` +
+        `Focus on consistent practice and smart cricket! 🏏`
+    } else {
+      // Generic response if no keyword matches
+      response =
+        `Great question! Here's what I recommend based on your current performance:\n` +
+        `• Batting Average: ${stats.battingAverage?.toFixed(2) || 'N/A'}\n` +
+        `• Strike Rate: ${stats.strikeRate?.toFixed(2) || 'N/A'}\n` +
+        `• Matches: ${matches.length}\n\n` +
+        `Keep working hard on your game and ask me anything specific! 💪`
+    }
+
+    return response
   }
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return
+    if (!input.trim()) return
 
-    const userMessage = { role: 'user', content: input }
-    const updatedMessages = [...messages, userMessage]
-    setMessages(updatedMessages)
+    setIsSending(true)
+
+    // Add user message
+    const userMessage = input
+    setMessages((prev) => [...prev, { id: prev.length + 1, type: 'user', text: userMessage }])
     setInput('')
-    setLoading(true)
 
-    try {
-      const response = await fetch('/api/ai/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message: input, 
-          uid: user.uid,
-          chatHistory: updatedMessages.slice(-10) // Send last 10 messages for context
-        })
-      })
-
-      const data = await response.json()
-      const aiMessage = { role: 'ai', content: data.response }
-      setMessages(prev => [...prev, aiMessage])
-    } catch (error) {
-      console.error('Error:', error)
-      const errorMessage = { role: 'ai', content: 'Sorry, I encountered an error. Please try again.' }
-      setMessages(prev => [...prev, errorMessage])
-    } finally {
-      setLoading(false)
-    }
+    // Simulate AI response delay
+    setTimeout(() => {
+      const coachResponse = generateCoachResponse(userMessage)
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: prev.length + 1,
+          type: 'coach',
+          text: coachResponse
+        }
+      ])
+      setIsSending(false)
+    }, 800)
   }
 
-  const suggestedPrompts = [
-    "Analyze my batting performance",
-    "How can I improve my bowling?",
-    "Compare my T20 and ODI stats",
-    "What training should I focus on?"
-  ]
+  if (loading || isLoading) {
+    return (
+      <div className="flex h-screen bg-gray-50">
+        <SidebarNav activePage="AI Coach" />
+        <div className="flex-1 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
+            <p className="text-gray-600">Loading AI Coach...</p>
+          </div>
+        </div>
+      </div>
+    )
+  }
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <PlayerNav />
-      
-      <main className="md:ml-64 mt-16 p-6 pb-20 md:pb-6">
-        <div className="max-w-5xl mx-auto">
-          <div className="flex items-center mb-6">
-            <Bot className="w-8 h-8 text-blue-600 mr-3" />
-            <div>
-              <h1 className="text-3xl font-poppins font-bold text-gray-900">AI Cricket Coach</h1>
-              <p className="text-gray-600">Get personalized coaching advice powered by AI</p>
+    <div className="flex h-screen bg-gray-50">
+      {/* SIDEBAR */}
+      <SidebarNav activePage="AI Coach" />
+
+      {/* MAIN CONTENT */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
+          <div>
+            <h1 className="text-2xl font-bold text-gray-900">AI Coach</h1>
+            <p className="text-sm text-gray-600">Personalized coaching based on your performance</p>
+          </div>
+          <Bell className="w-5 h-5 text-gray-600" />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 flex overflow-hidden">
+          {/* Suggested Topics Sidebar */}
+          <div className="w-64 bg-white border-r border-gray-200 p-6 flex flex-col">
+            <h3 className="font-bold mb-4 text-gray-900">Quick Topics</h3>
+            <div className="space-y-2 flex-1">
+              {suggestedTopics.map((topic, idx) => (
+                <button
+                  key={idx}
+                  onClick={() => setInput(topic)}
+                  className="w-full text-left px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm hover:bg-blue-100 transition-colors font-medium"
+                >
+                  {topic}
+                </button>
+              ))}
+            </div>
+
+            {/* Quick Stats */}
+            <div className="border-t pt-4 space-y-4 mt-4">
+              <h3 className="font-bold text-gray-900">Your Stats</h3>
+              {stats ? (
+                <div className="space-y-4 text-sm">
+                  <div>
+                    <p className="text-gray-600 text-xs">Batting Average</p>
+                    <p className="text-lg font-bold text-gray-900">{stats.battingAverage?.toFixed(2) || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 text-xs">Strike Rate</p>
+                    <p className="text-lg font-bold text-gray-900">{stats.strikeRate?.toFixed(2) || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 text-xs">Economy Rate</p>
+                    <p className="text-lg font-bold text-gray-900">{stats.economy?.toFixed(2) || 'N/A'}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-600 text-xs">Matches Played</p>
+                    <p className="text-lg font-bold text-gray-900">{matches.length}</p>
+                  </div>
+                </div>
+              ) : (
+                <p className="text-gray-500 text-sm">No data available. Add some matches first!</p>
+              )}
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            {/* Chat Area */}
-            <div className="lg:col-span-3">
-              <Card className="shadow-lg h-[600px] flex flex-col">
-                <CardHeader className="bg-blue-600 text-white">
-                  <div className="flex items-center space-x-3">
-                    <div className="w-10 h-10 bg-white rounded-full flex items-center justify-center">
-                      <Bot className="w-6 h-6 text-blue-600" />
-                    </div>
-                    <div>
-                      <CardTitle className="text-white">AI Cricket Coach</CardTitle>
-                      <p className="text-sm text-blue-100 flex items-center">
-                        <span className="w-2 h-2 bg-green-400 rounded-full mr-2"></span>
-                        Online
-                      </p>
-                    </div>
+          {/* Chat Area */}
+          <div className="flex-1 flex flex-col">
+            {/* Messages */}
+            <div className="flex-1 overflow-auto p-8 space-y-4">
+              {messages.map((msg) => (
+                <div key={msg.id} className={`flex ${msg.type === 'user' ? 'justify-end' : 'justify-start'}`}>
+                  <div
+                    className={`max-w-2xl px-4 py-3 rounded-lg whitespace-pre-wrap ${
+                      msg.type === 'user'
+                        ? 'bg-blue-600 text-white rounded-br-none'
+                        : 'bg-white border border-gray-200 text-gray-900 rounded-bl-none'
+                    }`}
+                  >
+                    <p className="text-sm">{msg.text}</p>
                   </div>
-                </CardHeader>
-                
-                <CardContent className="flex-1 overflow-y-auto p-6 space-y-4">
-                  {messages.length === 0 ? (
-                    <div className="h-full flex flex-col items-center justify-center text-center">
-                      <Bot className="w-20 h-20 text-blue-600 mb-4" />
-                      <h3 className="text-xl font-semibold mb-2">Start Your Coaching Session!</h3>
-                      <p className="text-gray-600 mb-6">Ask me anything about your cricket performance</p>
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                        {suggestedPrompts.map((prompt, index) => (
-                          <button
-                            key={index}
-                            onClick={() => setInput(prompt)}
-                            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg text-sm text-gray-700 transition-colors"
-                          >
-                            {prompt}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  ) : (
-                    messages.map((message, index) => (
-                      <div key={index} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[80%] rounded-lg p-4 ${
-                          message.role === 'user'
-                            ? 'bg-blue-600 text-white'
-                            : 'bg-gray-100 text-gray-900'
-                        }`}>
-                          {message.role === 'ai' && (
-                            <div className="flex items-center space-x-2 mb-2">
-                              <Bot className="w-4 h-4" />
-                              <span className="text-xs font-semibold">AI Coach</span>
-                            </div>
-                          )}
-                          <p className="whitespace-pre-wrap">{message.content}</p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                  {loading && (
-                    <div className="flex justify-start">
-                      <div className="bg-gray-100 rounded-lg p-4">
-                        <div className="flex items-center space-x-2">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          <span className="text-sm">AI Coach is analyzing...</span>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </CardContent>
-
-                <div className="p-4 border-t">
-                  <div className="flex space-x-2">
-                    <Input
-                      value={input}
-                      onChange={(e) => setInput(e.target.value)}
-                      onKeyPress={(e) => e.key === 'Enter' && handleSend()}
-                      placeholder="Ask your AI coach anything about cricket..."
-                      className="flex-1"
-                      disabled={loading}
-                    />
-                    <Button
-                      onClick={handleSend}
-                      disabled={loading || !input.trim()}
-                      className="bg-blue-600 hover:bg-blue-700"
-                    >
-                      <Send className="w-5 h-5" />
-                    </Button>
-                  </div>
-                  <p className="text-xs text-gray-500 mt-2">AI-generated cricket coaching advice - consult professional coach for personalized training</p>
                 </div>
-              </Card>
+              ))}
+              {isSending && (
+                <div className="flex justify-start">
+                  <div className="bg-white border border-gray-200 px-4 py-3 rounded-lg rounded-bl-none">
+                    <div className="flex gap-2">
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce"></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                      <div className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+                    </div>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {/* Quick Stats Sidebar */}
-            <div className="lg:col-span-1">
-              <Card className="shadow-lg">
-                <CardHeader>
-                  <CardTitle className="text-lg flex items-center">
-                    <BarChart3 className="w-5 h-5 mr-2" />
-                    Quick Stats
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {stats ? (
-                    <>
-                      <div>
-                        <p className="text-sm text-gray-600">Batting Average</p>
-                        <p className="text-2xl font-bold text-blue-600">{stats.battingAverage}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-600">Strike Rate</p>
-                        <p className="text-2xl font-bold text-green-600">{stats.strikeRate}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-600">Bowling Economy</p>
-                        <p className="text-2xl font-bold text-orange-600">{stats.bowlingEconomy}</p>
-                      </div>
-                      <div>
-                        <p className="text-sm text-gray-600">Total Matches</p>
-                        <p className="text-2xl font-bold text-purple-600">{stats.totalMatches}</p>
-                      </div>
-                    </>
-                  ) : (
-                    <p className="text-gray-500 text-sm">Loading stats...</p>
-                  )}
-                </CardContent>
-              </Card>
-
-              <Card className="shadow-lg mt-6">
-                <CardHeader>
-                  <CardTitle className="text-lg">Suggested Topics</CardTitle>
-                </CardHeader>
-                <CardContent className="space-y-2">
-                  {suggestedPrompts.map((prompt, index) => (
-                    <button
-                      key={index}
-                      onClick={() => setInput(prompt)}
-                      className="w-full text-left px-3 py-2 bg-gray-50 hover:bg-gray-100 rounded-lg text-sm transition-colors"
-                    >
-                      {prompt}
-                    </button>
-                  ))}
-                </CardContent>
-              </Card>
+            {/* Input */}
+            <div className="bg-white border-t border-gray-200 p-6">
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={(e) => e.key === 'Enter' && !isSending && handleSend()}
+                  placeholder="Ask your AI Coach..."
+                  disabled={isSending}
+                  className="flex-1 px-4 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50 disabled:cursor-not-allowed"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={isSending}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center gap-2 disabled:bg-gray-400 disabled:cursor-not-allowed"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
             </div>
           </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }

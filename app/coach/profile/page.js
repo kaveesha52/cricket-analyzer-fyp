@@ -18,13 +18,21 @@ export default function CoachProfilePage() {
   const router = useRouter()
   const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
   const [profileImage, setProfileImage] = useState(null)
+  const [editMode, setEditMode] = useState(false)
+  const [editForm, setEditForm] = useState({
+    name: '',
+    bio: '',
+    yearsCoaching: 0,
+    totalStudentsCoached: 0,
+    maxStudents: 10
+  })
   const [settings, setSettings] = useState({
     emailNotifications: true,
     pushNotifications: true,
     visible: true
   })
-  const [editMode, setEditMode] = useState(false)
 
   const handleImageUpload = (e) => {
     const file = e.target.files?.[0]
@@ -48,6 +56,13 @@ export default function CoachProfilePage() {
       const response = await fetch(`/api/user/profile?uid=${user.uid}`)
       const data = await response.json()
       setProfile(data.user)
+      setEditForm({
+        name: data.user?.name || '',
+        bio: data.user?.bio || '',
+        yearsCoaching: data.user?.yearsCoaching || 0,
+        totalStudentsCoached: data.user?.totalStudentsCoached || 0,
+        maxStudents: data.user?.maxStudents || 10
+      })
     } catch (error) {
       console.error('Error fetching profile:', error)
     } finally {
@@ -58,6 +73,45 @@ export default function CoachProfilePage() {
   const handleSignOut = async () => {
     await signOut()
     router.push('/')
+  }
+
+  const handleEditChange = (field, value) => {
+    setEditForm(prev => ({
+      ...prev,
+      [field]: value
+    }))
+  }
+
+  const handleSaveProfile = async () => {
+    setSaving(true)
+    try {
+      const response = await fetch('/api/user/profile', {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          uid: user.uid,
+          name: editForm.name,
+          bio: editForm.bio,
+          yearsCoaching: editForm.yearsCoaching,
+          totalStudentsCoached: editForm.totalStudentsCoached,
+          maxStudents: editForm.maxStudents
+        })
+      })
+
+      if (response.ok) {
+        const data = await response.json()
+        setProfile(data.user || editForm)
+        setEditMode(false)
+      } else {
+        console.error('Failed to save profile')
+      }
+    } catch (error) {
+      console.error('Error saving profile:', error)
+    } finally {
+      setSaving(false)
+    }
   }
 
   if (loading) {
@@ -118,18 +172,42 @@ export default function CoachProfilePage() {
                 </Button>
 
                 <div className="mt-6 pt-6 border-t text-left space-y-3">
-                  <div className="flex items-center space-x-2">
-                    <Award className="w-5 h-5 text-blue-700" />
-                    <div>
-                      <p className="text-sm text-gray-600">Years Coaching</p>
-                      <p className="font-semibold">5 years</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Award className="w-5 h-5 text-blue-700" />
+                      <div>
+                        <p className="text-sm text-gray-600">Years Coaching</p>
+                        {editMode ? (
+                          <Input 
+                            type="number" 
+                            value={editForm.yearsCoaching}
+                            onChange={(e) => handleEditChange('yearsCoaching', parseInt(e.target.value))}
+                            className="w-20 mt-1"
+                            min="0"
+                          />
+                        ) : (
+                          <p className="font-semibold">{editForm.yearsCoaching} years</p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                  <div className="flex items-center space-x-2">
-                    <Star className="w-5 h-5 text-green-600" />
-                    <div>
-                      <p className="text-sm text-gray-600">Students Coached</p>
-                      <p className="font-semibold">50+</p>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <Star className="w-5 h-5 text-green-600" />
+                      <div>
+                        <p className="text-sm text-gray-600">Students Coached</p>
+                        {editMode ? (
+                          <Input 
+                            type="number" 
+                            value={editForm.totalStudentsCoached}
+                            onChange={(e) => handleEditChange('totalStudentsCoached', parseInt(e.target.value))}
+                            className="w-20 mt-1"
+                            min="0"
+                          />
+                        ) : (
+                          <p className="font-semibold">{editForm.totalStudentsCoached}+</p>
+                        )}
+                      </div>
                     </div>
                   </div>
                   <p className="text-xs text-gray-500 pt-3 border-t">
@@ -151,7 +229,8 @@ export default function CoachProfilePage() {
                   <Label htmlFor="name">Full Name</Label>
                   <Input 
                     id="name" 
-                    defaultValue={profile?.name || ''} 
+                    value={editForm.name}
+                    onChange={(e) => handleEditChange('name', e.target.value)}
                     disabled={!editMode}
                   />
                 </div>
@@ -160,7 +239,7 @@ export default function CoachProfilePage() {
                   <Input 
                     id="email" 
                     type="email" 
-                    defaultValue={profile?.email || ''} 
+                    value={profile?.email || ''}
                     disabled
                   />
                 </div>
@@ -171,12 +250,17 @@ export default function CoachProfilePage() {
                     rows={4}
                     placeholder="Share your coaching philosophy and experience..." 
                     disabled={!editMode}
-                    defaultValue="Experienced cricket coach specializing in batting techniques and mental coaching. Passionate about developing young talent and helping players reach their full potential."
+                    value={editForm.bio}
+                    onChange={(e) => handleEditChange('bio', e.target.value)}
                   />
                 </div>
                 {editMode && (
-                  <Button className="bg-blue-700 hover:bg-blue-800">
-                    Save Changes
+                  <Button 
+                    className="bg-blue-700 hover:bg-blue-800 w-full"
+                    onClick={handleSaveProfile}
+                    disabled={saving}
+                  >
+                    {saving ? 'Saving...' : 'Save Changes'}
                   </Button>
                 )}
               </CardContent>
@@ -225,7 +309,13 @@ export default function CoachProfilePage() {
               <CardContent className="space-y-4">
                 <div>
                   <Label>Maximum Students</Label>
-                  <Input type="number" defaultValue="20" disabled={!editMode} />
+                  <Input 
+                    type="number" 
+                    value={editForm.maxStudents}
+                    onChange={(e) => handleEditChange('maxStudents', parseInt(e.target.value))}
+                    disabled={!editMode}
+                    min="1"
+                  />
                 </div>
                 <div>
                   <Label>Session Types Offered</Label>

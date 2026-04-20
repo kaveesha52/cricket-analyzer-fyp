@@ -1,427 +1,406 @@
 'use client'
 
-import { useState } from 'react'
+import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useAuth } from '@/lib/authContext'
-import PlayerNav from '@/components/PlayerNav'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Input } from '@/components/ui/input'
-import { Label } from '@/components/ui/label'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
-import { CheckCircle, Trophy, Target } from 'lucide-react'
+import { Bell } from 'lucide-react'
 import { toast } from 'sonner'
+import { SidebarNav } from '@/components/SidebarNav'
 
 export default function AddMatchPage() {
   const { user } = useAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(false)
-  const [success, setSuccess] = useState(false)
-  const [badges, setBadges] = useState([])
-  
-  const [formData, setFormData] = useState({
+
+  const [matchData, setMatchData] = useState({
     date: new Date().toISOString().split('T')[0],
     format: 'T20',
     location: '',
-    batting: { runs: 0, balls: 0, fours: 0, sixes: 0, dismissal: '' },
-    bowling: { overs: 0, wickets: 0, runsConceded: 0, maidens: 0 },
-    fielding: { catches: 0, runOuts: 0, stumpings: 0 }
+    opponent: '',
+    runs: '',
+    balls: '',
+    fours: '',
+    sixes: '',
+    dismissal: 'Not Out',
+    overs: '',
+    wickets: '',
+    runsGiven: '',
+    maidens: '',
+    catches: '',
+    runOuts: '',
+    stumpings: '',
   })
+
+  const handleChange = (e) => {
+    setMatchData({ ...matchData, [e.target.name]: e.target.value })
+  }
 
   const checkBadges = () => {
     const earnedBadges = []
-    
-    // Century badge
-    if (formData.batting.runs >= 100) {
+    const runs = parseInt(matchData.runs) || 0
+    const wickets = parseInt(matchData.wickets) || 0
+
+    if (runs >= 100) {
       earnedBadges.push({
         name: 'Century!',
         description: 'Scored 100+ runs',
-        icon: '💯',
-        color: 'gold'
+        icon: '💯'
       })
-    }
-    // Half Century badge
-    else if (formData.batting.runs >= 50) {
+    } else if (runs >= 50) {
       earnedBadges.push({
         name: 'Half Century!',
         description: 'Scored 50+ runs',
-        icon: '⭐',
-        color: 'silver'
+        icon: '⭐'
       })
     }
-    
-    // 5 Wicket Haul badge
-    if (formData.bowling.wickets >= 5) {
+
+    if (wickets >= 5) {
       earnedBadges.push({
         name: '5-Wicket Haul!',
         description: 'Took 5+ wickets',
-        icon: '🎯',
-        color: 'gold'
+        icon: '🎯'
       })
     }
-    
+
     return earnedBadges
   }
 
   const handleSubmit = async (e) => {
     e.preventDefault()
+    
+    if (!matchData.date || !matchData.location) {
+      toast.error('Please fill in all required fields')
+      return
+    }
+
     setLoading(true)
 
     try {
       const response = await fetch('/api/matches', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...formData, uid: user.uid })
+        body: JSON.stringify({
+          uid: user.uid,
+          date: matchData.date,
+          format: matchData.format,
+          location: matchData.location,
+          opponent: matchData.opponent,
+          batting: {
+            runs: parseInt(matchData.runs) || 0,
+            balls: parseInt(matchData.balls) || 0,
+            fours: parseInt(matchData.fours) || 0,
+            sixes: parseInt(matchData.sixes) || 0,
+            dismissal: matchData.dismissal
+          },
+          bowling: {
+            overs: parseFloat(matchData.overs) || 0,
+            wickets: parseInt(matchData.wickets) || 0,
+            runsConceded: parseInt(matchData.runsGiven) || 0,
+            maidens: parseInt(matchData.maidens) || 0
+          },
+          fielding: {
+            catches: parseInt(matchData.catches) || 0,
+            runOuts: parseInt(matchData.runOuts) || 0,
+            stumpings: parseInt(matchData.stumpings) || 0
+          }
+        })
       })
 
       if (response.ok) {
         const earnedBadges = checkBadges()
-        
-        // Show success toast
+
         toast.success('Match Added Successfully!', {
           description: 'Your match has been recorded.',
-          duration: 3000,
+          duration: 3000
         })
-        
-        // Show badge notifications
+
         if (earnedBadges.length > 0) {
           earnedBadges.forEach((badge, index) => {
             setTimeout(() => {
               toast.success(`${badge.icon} ${badge.name}`, {
                 description: badge.description,
-                duration: 4000,
+                duration: 4000
               })
             }, (index + 1) * 500)
           })
         }
-        
-        // Reset form after short delay
+
         setTimeout(() => {
-          setFormData({
-            date: new Date().toISOString().split('T')[0],
-            format: 'T20',
-            location: '',
-            batting: { runs: 0, balls: 0, fours: 0, sixes: 0, dismissal: '' },
-            bowling: { overs: 0, wickets: 0, runsConceded: 0, maidens: 0 },
-            fielding: { catches: 0, runOuts: 0, stumpings: 0 }
-          })
-        }, 1000)
+          router.push('/player/dashboard')
+        }, 2000)
       } else {
         toast.error('Failed to add match', {
-          description: 'Please try again.',
+          description: 'Please try again.'
         })
       }
     } catch (error) {
       console.error('Error adding match:', error)
+      toast.error('Error', {
+        description: 'An error occurred while adding the match.'
+      })
     } finally {
       setLoading(false)
     }
   }
 
-  const calculateStrikeRate = () => {
-    if (formData.batting.balls > 0) {
-      return ((formData.batting.runs / formData.batting.balls) * 100).toFixed(2)
-    }
-    return '0.00'
-  }
-
-  const calculateEconomy = () => {
-    if (formData.bowling.overs > 0) {
-      return (formData.bowling.runsConceded / formData.bowling.overs).toFixed(2)
-    }
-    return '0.00'
-  }
+  const strikeRate = matchData.balls ? ((parseInt(matchData.runs || '0') / parseInt(matchData.balls)) * 100).toFixed(2) : '0'
+  const economy = matchData.overs ? (parseInt(matchData.runsGiven || '0') / parseInt(matchData.overs)).toFixed(2) : '0'
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-50 to-blue-50">
-      <PlayerNav />
-      
-      <main className="md:ml-64 mt-16 p-6 pb-20 md:pb-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="flex items-center mb-6">
-            <Trophy className="w-8 h-8 text-blue-600 mr-3" />
-            <h1 className="text-3xl font-poppins font-bold text-gray-900">Add New Match</h1>
-          </div>
+    <div className="flex h-screen bg-gray-50">
+      {/* SIDEBAR */}
+      <SidebarNav activePage="Add Match" />
 
-          <form onSubmit={handleSubmit}>
-            <Card className="shadow-lg mb-6">
-              <CardHeader className="bg-gray-50">
-                <CardTitle>Match Details</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {/* MAIN CONTENT */}
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-8 py-4 flex items-center justify-between">
+          <h1 className="text-2xl font-bold text-gray-900">Add Match</h1>
+          <Bell className="w-5 h-5 text-gray-600" />
+        </div>
+
+        {/* Content */}
+        <div className="flex-1 overflow-auto p-8">
+          <div className="max-w-4xl mx-auto bg-white rounded-lg p-8 shadow-sm border border-gray-100 space-y-6">
+            <form onSubmit={handleSubmit}>
+              {/* Match Details */}
+              <div>
+                <h3 className="text-lg font-bold mb-4 text-gray-900">Match Details</h3>
+                <div className="grid grid-cols-4 gap-4">
                   <div>
-                    <Label htmlFor="date">Date</Label>
-                    <Input
-                      id="date"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Date</label>
+                    <input
                       type="date"
-                      value={formData.date}
-                      onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                      name="date"
+                      value={matchData.date}
+                      onChange={handleChange}
                       required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="format">Match Format</Label>
-                    <Select value={formData.format} onValueChange={(value) => setFormData({ ...formData, format: value })}>
-                      <SelectTrigger>
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="T20"><span className="text-red-600 font-semibold">T20</span></SelectItem>
-                        <SelectItem value="ODI"><span className="text-blue-600 font-semibold">ODI</span></SelectItem>
-                        <SelectItem value="Test"><span className="text-green-600 font-semibold">Test</span></SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Format</label>
+                    <select
+                      name="format"
+                      value={matchData.format}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option>T20</option>
+                      <option>ODI</option>
+                      <option>Test</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Location</label>
+                    <input
+                      type="text"
+                      name="location"
+                      value={matchData.location}
+                      onChange={handleChange}
+                      placeholder="Stadium name"
+                      required
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Opponent</label>
+                    <input
+                      type="text"
+                      name="opponent"
+                      value={matchData.opponent}
+                      onChange={handleChange}
+                      placeholder="Team name"
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
                   </div>
                 </div>
-                <div>
-                  <Label htmlFor="location">Location</Label>
-                  <Input
-                    id="location"
-                    type="text"
-                    placeholder="e.g., Local Cricket Ground"
-                    value={formData.location}
-                    onChange={(e) => setFormData({ ...formData, location: e.target.value })}
-                    required
-                  />
-                </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            <Card className="shadow-lg mb-6">
-              <CardHeader className="bg-blue-50">
-                <CardTitle className="text-blue-700">Batting Performance</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Batting Section */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-bold mb-4 text-gray-900">Batting</h3>
+                <div className="grid grid-cols-5 gap-4">
                   <div>
-                    <Label htmlFor="runs">Runs</Label>
-                    <Input
-                      id="runs"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Runs</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.batting.runs}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        batting: { ...formData.batting, runs: parseInt(e.target.value) || 0 }
-                      })}
-                      required
+                      name="runs"
+                      value={matchData.runs}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="balls">Balls Faced</Label>
-                    <Input
-                      id="balls"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Balls</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.batting.balls}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        batting: { ...formData.batting, balls: parseInt(e.target.value) || 0 }
-                      })}
-                      required
+                      name="balls"
+                      value={matchData.balls}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="fours">4s</Label>
-                    <Input
-                      id="fours"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Fours</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.batting.fours}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        batting: { ...formData.batting, fours: parseInt(e.target.value) || 0 }
-                      })}
+                      name="fours"
+                      value={matchData.fours}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="sixes">6s</Label>
-                    <Input
-                      id="sixes"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Sixes</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.batting.sixes}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        batting: { ...formData.batting, sixes: parseInt(e.target.value) || 0 }
-                      })}
+                      name="sixes"
+                      value={matchData.sixes}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Dismissal</label>
+                    <select
+                      name="dismissal"
+                      value={matchData.dismissal}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option>Not Out</option>
+                      <option>Bowled</option>
+                      <option>Caught</option>
+                      <option>LBW</option>
+                      <option>Run Out</option>
+                      <option>Stumped</option>
+                    </select>
                   </div>
                 </div>
-                <div>
-                  <Label htmlFor="dismissal">How Out</Label>
-                  <Select value={formData.batting.dismissal} onValueChange={(value) => setFormData({
-                    ...formData,
-                    batting: { ...formData.batting, dismissal: value }
-                  })}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select dismissal type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Not Out">Not Out</SelectItem>
-                      <SelectItem value="Bowled">Bowled</SelectItem>
-                      <SelectItem value="Caught">Caught</SelectItem>
-                      <SelectItem value="LBW">LBW</SelectItem>
-                      <SelectItem value="Run Out">Run Out</SelectItem>
-                      <SelectItem value="Stumped">Stumped</SelectItem>
-                    </SelectContent>
-                  </Select>
+                <div className="mt-3 p-3 bg-blue-50 rounded-lg border border-blue-200">
+                  <p className="text-sm text-blue-600">
+                    Strike Rate: <span className="font-bold">{strikeRate}</span>
+                  </p>
                 </div>
-                <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center space-x-3">
-                  <Trophy className="w-8 h-8 text-green-600" />
-                  <div>
-                    <p className="text-sm text-gray-600">Strike Rate</p>
-                    <p className="text-2xl font-bold text-green-600">{calculateStrikeRate()}</p>
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            <Card className="shadow-lg mb-6">
-              <CardHeader className="bg-orange-50">
-                <CardTitle className="text-orange-700">Bowling Performance</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6 space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              {/* Bowling Section */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-bold mb-4 text-gray-900">Bowling</h3>
+                <div className="grid grid-cols-4 gap-4">
                   <div>
-                    <Label htmlFor="overs">Overs</Label>
-                    <Input
-                      id="overs"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Overs</label>
+                    <input
                       type="number"
+                      name="overs"
+                      value={matchData.overs}
+                      onChange={handleChange}
                       step="0.1"
-                      min="0"
-                      value={formData.bowling.overs}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        bowling: { ...formData.bowling, overs: parseFloat(e.target.value) || 0 }
-                      })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="wickets">Wickets</Label>
-                    <Input
-                      id="wickets"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Wickets</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.bowling.wickets}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        bowling: { ...formData.bowling, wickets: parseInt(e.target.value) || 0 }
-                      })}
+                      name="wickets"
+                      value={matchData.wickets}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="runsConceded">Runs Conceded</Label>
-                    <Input
-                      id="runsConceded"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Runs Given</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.bowling.runsConceded}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        bowling: { ...formData.bowling, runsConceded: parseInt(e.target.value) || 0 }
-                      })}
+                      name="runsGiven"
+                      value={matchData.runsGiven}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="maidens">Maidens</Label>
-                    <Input
-                      id="maidens"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Maidens</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.bowling.maidens}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        bowling: { ...formData.bowling, maidens: parseInt(e.target.value) || 0 }
-                      })}
+                      name="maidens"
+                      value={matchData.maidens}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 flex items-center space-x-3">
-                  <Target className="w-8 h-8 text-blue-600" />
-                  <div>
-                    <p className="text-sm text-gray-600">Economy Rate</p>
-                    <p className="text-2xl font-bold text-blue-600">{calculateEconomy()}</p>
-                  </div>
+                <div className="mt-3 p-3 bg-green-50 rounded-lg border border-green-200">
+                  <p className="text-sm text-green-600">
+                    Economy Rate: <span className="font-bold">{economy}</span>
+                  </p>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            <Card className="shadow-lg mb-6">
-              <CardHeader className="bg-purple-50">
-                <CardTitle className="text-purple-700">Fielding Performance (Optional)</CardTitle>
-              </CardHeader>
-              <CardContent className="pt-6">
+              {/* Fielding Section */}
+              <div className="border-t pt-6">
+                <h3 className="text-lg font-bold mb-4 text-gray-900">Fielding</h3>
                 <div className="grid grid-cols-3 gap-4">
                   <div>
-                    <Label htmlFor="catches">Catches</Label>
-                    <Input
-                      id="catches"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Catches</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.fielding.catches}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        fielding: { ...formData.fielding, catches: parseInt(e.target.value) || 0 }
-                      })}
+                      name="catches"
+                      value={matchData.catches}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="runOuts">Run Outs</Label>
-                    <Input
-                      id="runOuts"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Run-outs</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.fielding.runOuts}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        fielding: { ...formData.fielding, runOuts: parseInt(e.target.value) || 0 }
-                      })}
+                      name="runOuts"
+                      value={matchData.runOuts}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                   <div>
-                    <Label htmlFor="stumpings">Stumpings</Label>
-                    <Input
-                      id="stumpings"
+                    <label className="block text-sm font-medium text-gray-700 mb-2">Stumpings</label>
+                    <input
                       type="number"
-                      min="0"
-                      value={formData.fielding.stumpings}
-                      onChange={(e) => setFormData({
-                        ...formData,
-                        fielding: { ...formData.fielding, stumpings: parseInt(e.target.value) || 0 }
-                      })}
+                      name="stumpings"
+                      value={matchData.stumpings}
+                      onChange={handleChange}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                     />
                   </div>
                 </div>
-              </CardContent>
-            </Card>
+              </div>
 
-            <div className="flex space-x-4">
-              <Button
-                type="submit"
-                disabled={loading}
-                className="flex-1 bg-green-600 hover:bg-green-700 py-6 text-lg"
-              >
-                {loading ? 'Saving...' : (
-                  <>
-                    <CheckCircle className="w-5 h-5 mr-2" />
-                    Save Match
-                  </>
-                )}
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => router.back()}
-                className="py-6 px-8"
-              >
-                Cancel
-              </Button>
-            </div>
-          </form>
+              {/* Buttons */}
+              <div className="border-t pt-6 flex gap-3">
+                <button
+                  type="submit"
+                  disabled={loading}
+                  className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors font-medium disabled:opacity-50"
+                >
+                  {loading ? 'Adding Match...' : 'Add Match'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => router.back()}
+                  className="px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors font-medium"
+                >
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
-      </main>
+      </div>
     </div>
   )
 }
+
+// ============================================================================
+// SIDEBAR COMPONENT
+// ============================================================================
+// Now using unified SidebarNav component from @/components/SidebarNav
