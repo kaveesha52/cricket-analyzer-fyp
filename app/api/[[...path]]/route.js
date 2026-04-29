@@ -615,53 +615,113 @@ export async function POST(request, { params }) {
 
     // AI Coach Chat
     if (path === 'ai/chat') {
-      const { message, uid, chatHistory } = body;
+      const { message, uid, chatHistory, matches: providedMatches, stats: providedStats } = body;
 
       if (!message || !uid) {
         return NextResponse.json({ error: 'Message and UID required' }, { status: 400 });
       }
 
+      // Smart cricket validation - focus on REJECTING non-cricket rather than requiring cricket
+      // Non-cricket topics to explicitly reject
+      const nonCricketKeywords = [
+        'football', 'soccer', 'basketball', 'tennis', 'golf', 'volleyball', 'hockey',
+        'politics', 'movie', 'film', 'code', 'python', 'javascript', 'math', 'history',
+        'literature', 'programming', 'weather', 'recipe', 'cooking', 'love', 'dating',
+        'funny jokes', 'music', 'song'
+      ];
+      
+      const messageLower = message.toLowerCase();
+      const hasNonCricketKeyword = nonCricketKeywords.some(keyword => messageLower.includes(keyword));
+      
+      // If explicitly non-cricket, reject it
+      if (hasNonCricketKeyword) {
+        return NextResponse.json({
+          response: "I'm a cricket coach, so I specialize in cricket coaching only! 🏏 But I'm here whenever you need help with your cricket game. Ask me about batting, bowling, fitness, strategy, or any aspect of cricket improvement!",
+          stats: providedStats || { battingAverage: 0, strikeRate: 0, economy: 0, totalMatches: 0 }
+        });
+      }
+      
+      // If not explicitly non-cricket, allow it - give the AI a chance to answer
+      // The AI has instructions to only talk about cricket in its system prompt
+
       try {
-        // Get user's recent matches for context
-        const matchesRef = collection(db, 'matches');
-        const q = query(matchesRef, where('uid', '==', uid));
-        const snapshot = await getDocs(q);
-        
-        const allMatches = [];
-        snapshot.forEach(doc => {
-          allMatches.push(doc.data());
-        });
+        let recentMatches = [];
+        let calculatedStats = providedStats;
 
-        // Sort and get last 10
-        allMatches.sort((a, b) => new Date(b.date) - new Date(a.date));
-        const recentMatches = allMatches.slice(0, 10);
+        // Use provided matches if available, otherwise fetch from Firestore
+        if (providedMatches && providedMatches.length > 0) {
+          recentMatches = providedMatches.slice(0, 20);
+        } else {
+          const matchesRef = collection(db, 'matches');
+          const q = query(matchesRef, where('uid', '==', uid));
+          const snapshot = await getDocs(q);
+          
+          const allMatches = [];
+          snapshot.forEach(doc => {
+            allMatches.push(doc.data());
+          });
 
-        // Calculate stats
-        let totalRuns = 0, totalBalls = 0, totalWickets = 0, totalOvers = 0, totalRunsConceded = 0;
-        recentMatches.forEach(match => {
-          totalRuns += match.batting?.runs || 0;
-          totalBalls += match.batting?.balls || 0;
-          totalWickets += match.bowling?.wickets || 0;
-          totalOvers += match.bowling?.overs || 0;
-          totalRunsConceded += match.bowling?.runsConceded || 0;
-        });
+          // Sort and get last 20
+          allMatches.sort((a, b) => new Date(b.date) - new Date(a.date));
+          recentMatches = allMatches.slice(0, 20);
+        }
 
-        const battingAvg = recentMatches.length > 0 ? (totalRuns / recentMatches.length).toFixed(2) : 0;
-        const strikeRate = totalBalls > 0 ? ((totalRuns / totalBalls) * 100).toFixed(2) : 0;
-        const economy = totalOvers > 0 ? (totalRunsConceded / totalOvers).toFixed(2) : 0;
+        // Calculate or use provided stats
+        if (!calculatedStats || !calculatedStats.battingAverage) {
+          let totalRuns = 0, totalBalls = 0, totalWickets = 0, totalOvers = 0, totalRunsConceded = 0;
+          recentMatches.forEach(match => {
+            totalRuns += match.batting?.runs || 0;
+            totalBalls += match.batting?.balls || 0;
+            totalWickets += match.bowling?.wickets || 0;
+            totalOvers += match.bowling?.overs || 0;
+            totalRunsConceded += match.bowling?.runsConceded || 0;
+          });
 
-        const contextMessage = `You are an expert cricket coach specializing in player development. IMPORTANT: You ONLY answer questions related to cricket - technique, training, performance, strategy, rules, equipment, fitness for cricket, mental game, etc.
+          calculatedStats = {
+            battingAverage: recentMatches.length > 0 ? parseFloat((totalRuns / recentMatches.length).toFixed(2)) : 0,
+            strikeRate: totalBalls > 0 ? parseFloat(((totalRuns / totalBalls) * 100).toFixed(2)) : 0,
+            economy: totalOvers > 0 ? parseFloat((totalRunsConceded / totalOvers).toFixed(2)) : 0,
+            totalMatches: recentMatches.length,
+            totalRuns,
+            totalWickets,
+            totalOvers,
+            totalRunsConceded
+          };
+        }
 
-If the user asks about anything non-cricket related, politely redirect them: "I'm a cricket coaching AI. I can only help with cricket-related questions about technique, training, performance analysis, strategy, and improvement. Please ask me something about cricket!"
+        // Build detailed context message with match history
+        let matchSummary = "Recent match performances:\n";
+        if (recentMatches.length > 0) {
+          recentMatches.slice(0, 5).forEach((match, idx) => {
+            const runs = match.batting?.runs || 0;
+            const balls = match.batting?.balls || 0;
+            const wickets = match.bowling?.wickets || 0;
+            const overs = match.bowling?.overs || 0;
+            const strikeRate = balls > 0 ? ((runs / balls) * 100).toFixed(2) : 0;
+            matchSummary += `Match ${idx + 1}: ${runs} runs (${balls} balls, SR: ${strikeRate}%) | Bowling: ${wickets}/${overs} overs\n`;
+          });
+        }
 
-The player has played ${recentMatches.length} recent matches with these stats:
-- Batting Average: ${battingAvg}
-- Strike Rate: ${strikeRate}
-- Bowling Economy: ${economy}
-- Total Runs: ${totalRuns}
-- Total Wickets: ${totalWickets}
+        const contextMessage = `You are an expert cricket coach specializing in player development and performance analysis.
 
-Provide helpful, specific coaching advice. Be encouraging and provide actionable tips. Reference their stats when relevant.`;
+RULES - STRICTLY ENFORCE:
+1. Only answer cricket-related questions
+2. Reject any questions about other sports, politics, entertainment, or non-cricket topics
+3. Always provide specific, actionable coaching advice
+4. Reference player statistics and recent performances
+5. Be encouraging but honest about areas for improvement
+
+Player Performance Statistics:
+• Batting Average: ${calculatedStats.battingAverage}
+• Strike Rate: ${calculatedStats.strikeRate}%
+• Bowling Economy: ${calculatedStats.economy}
+• Total Matches Played: ${calculatedStats.totalMatches}
+• Total Runs Scored: ${calculatedStats.totalRuns}
+• Total Wickets Taken: ${calculatedStats.totalWickets}
+
+${matchSummary}
+
+Provide expert cricket coaching based on their actual performance data. Focus on improvement strategies, technique refinement, mental toughness, and training plans.`;
 
         // Build messages array with chat history
         const messages = [
@@ -686,12 +746,12 @@ Provide helpful, specific coaching advice. Be encouraging and provide actionable
             model: "gpt-4o-mini",
             messages: messages,
             temperature: 0.7,
-            max_tokens: 500
+            max_tokens: 600
           });
 
           return NextResponse.json({
             response: completion.choices[0].message.content,
-            stats: { battingAvg, strikeRate, economy, totalMatches: recentMatches.length }
+            stats: calculatedStats
           });
         } catch (openaiError) {
           console.error('OpenAI Error:', openaiError);
@@ -699,26 +759,33 @@ Provide helpful, specific coaching advice. Be encouraging and provide actionable
           // Provide cricket-specific fallback
           const fallbackResponse = `I'm your AI cricket coach! I can help you with:
 
-📊 Performance Analysis - Review your batting average (${battingAvg}), strike rate (${strikeRate}), and bowling economy (${economy})
+📊 Performance Analysis
+Review your stats: Batting Average ${calculatedStats.battingAverage}, Strike Rate ${calculatedStats.strikeRate}%, Bowling Economy ${calculatedStats.economy}
 
-🏏 Technique Tips - Batting, bowling, and fielding improvements
+🏏 Technique Improvement
+Batting, bowling, fielding, and positioning coaching
 
-💪 Training Plans - Drills and exercises to improve your game
+💪 Training & Fitness
+Cricket-specific drills, conditioning, and exercises
 
-🎯 Strategy Advice - Match situations and decision making
+🎯 Match Strategy
+Tactics, field placement, and game situations
 
-What would you like to focus on today?`;
+🧠 Mental Performance
+Pressure management, confidence, and focus
+
+What aspect of your game would you like to work on?`;
 
           return NextResponse.json({
             response: fallbackResponse,
-            stats: { battingAvg, strikeRate, economy, totalMatches: recentMatches.length }
+            stats: calculatedStats
           });
         }
       } catch (error) {
         console.error('Error in AI chat:', error);
         return NextResponse.json({
           response: "I'm experiencing some technical difficulties. Please try again in a moment.",
-          stats: { battingAvg: 0, strikeRate: 0, economy: 0, totalMatches: 0 }
+          stats: { battingAverage: 0, strikeRate: 0, economy: 0, totalMatches: 0 }
         });
       }
     }
