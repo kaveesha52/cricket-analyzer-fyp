@@ -12,7 +12,6 @@ import { toast } from 'sonner'
 export default function ChangePasswordPage() {
   const { user, loading: authLoading } = useAuth()
   const router = useRouter()
-  const [profile, setProfile] = useState(null)
   const [isLoadingPage, setIsLoadingPage] = useState(true)
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')

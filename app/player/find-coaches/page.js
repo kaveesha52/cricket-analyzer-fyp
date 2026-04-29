@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useAuthContext } from '@/lib/authContext';
+import { useAuth } from '@/lib/authContext';
 import PlayerNav from '@/components/PlayerNav';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -11,7 +11,7 @@ import { collection, query, where, onSnapshot } from 'firebase/firestore';
 import { db } from '@/lib/firebase';
 
 export default function FindCoaches() {
-  const { user } = useAuthContext();
+  const { user } = useAuth();
   const router = useRouter();
   const [coaches, setCoaches] = useState([]);
   const [filteredCoaches, setFilteredCoaches] = useState([]);

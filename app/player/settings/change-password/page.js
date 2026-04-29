@@ -8,8 +8,6 @@ import { useAuth } from '@/lib/authContext'
 import { SidebarNav } from '@/components/SidebarNav'
 import { Lock, Eye, EyeOff, CheckCircle, Bell } from 'lucide-react'
 import { toast } from 'sonner'
-import { doc, updateDoc } from 'firebase/firestore'
-import { db } from '@/lib/firebase'
 
 export default function ChangePasswordPage() {
   const { user, loading: authLoading } = useAuth()
